@@ -1,0 +1,467 @@
+//*************日期混乱*******************
+
+/*LCD1602液晶显示日期和时间（简易电子表）*/
+#include <reg52.h>
+#define uchar unsigned char 
+#define uint unsigned int  
+sbit LCD_RW=P2^5; //液晶管脚定义
+sbit LCD_RS=P2^6;
+sbit LCD_EN=P2^7;  
+sbit GND1=P1^3;//矩阵按键独立使用管脚定义
+sbit s1=P1^7;
+sbit s2=P1^6;
+sbit s3=P1^5;
+sbit s4=P3^1;
+sbit s5=P3^0;
+sbit s6=P3^2;
+sbit s7=P3^3;
+uchar i,j,timecount,shi,ge,s1count,s4count,s7count;
+char hour,minute,second,year,month,day;
+uchar code table[]=" 2020-11-15 SUN";
+uchar code table1[]="    00:00:00";
+uchar code table2[]="SUN MON TUE WED THU FRI SAT";
+
+//子函数提前声明
+void write_com(uchar com);
+void write_data(uchar date);
+void delay(uchar z);
+void init();
+void display_time(uchar add,uchar date);
+void display_date(uchar add,uchar date);
+void adjust_date();
+void adjust_week();
+void adjust_time();
+
+
+
+
+//主函数初始化
+void init()
+{
+    //液晶显示初始化    
+    write_com(0x38);//开显示
+    write_com(0x0c);//不显示光标
+    write_com(0x06);//指针加一
+    write_com(0x01);//清屏
+    write_com(0x80);//设置数据指针起点
+    for(i=0;i<15;i++)
+    {
+        write_data(table[i]);
+        delay(10);        
+    }    
+    write_com(0x80+0x40);//换行,0x40为第二行首地址，0x50为隐藏地址    
+    for(i=0;i<12;i++)
+    {
+        write_data(table1[i]);
+        delay(10);        
+    }  
+    /*时间初始化
+    hour=23;
+    minute=59;
+    second=53;*/
+    
+    //中断初始化
+    TMOD=0x01;
+    TH0=(65535-50000)/256;
+    TL0=(65535-50000)%256;
+    EA=1;
+    ET0=1;
+    TR0=1;
+    
+}
+//写指令
+void write_com(uchar com)
+{
+     LCD_EN=0;
+     LCD_RS=0;//写指令
+     LCD_RW=0;//写
+     
+     P0=com;
+     delay(5);
+       
+     LCD_EN=1;
+     delay(5);
+     LCD_EN=0;
+}
+
+//写数据
+void write_data(uchar date)
+{
+     LCD_EN=0;
+     LCD_RS=1;//写数据
+     LCD_RW=0;//写
+     
+     P0=date;
+     delay(5);
+       
+     LCD_EN=1;
+     delay(5);
+     LCD_EN=0;
+}
+
+//延迟函数
+void delay(uchar z)
+{
+    uchar x,y;
+    for(x=z;x>0;x--)
+        for(y=110;y>0;y--);
+}
+
+//中断函数 
+void timer0() interrupt 1
+{
+    TH0=(65535-50000)/256;
+    TL0=(65535-50000)%256; 
+    timecount++;
+}
+
+//***显示时间函数（显示每一位数）
+void display_time(uchar add,uchar date)  //参数为地址和数据
+{   
+    shi=date/10;    //十位
+    ge=date%10;     //个位
+    write_com(0x80+0x40+add); //写地址   
+    write_data(0x30+shi);//写数据，0x30+数字 即为想要显示的数字
+    write_com(0x80+0x40+add+1);//写地址加一
+    write_data(0x30+ge);
+}
+
+//***显示日期函数（显示每一位数）
+void display_date(uchar add,uchar date)  //参数为地址和数据
+{   
+    shi=date/10;    //十位
+    ge=date%10;     //个位
+    write_com(0x80+add); //写地址   
+    write_data(0x30+shi);//写数据，0x30+数字 即为想要显示的数字
+    write_com(0x80+add+1);//写地址加一
+    write_data(0x30+ge);
+}
+
+//时钟时分秒调节函数
+void adjust_time()
+{
+    s1=1;
+    s2=1;
+    s3=1;
+    GND1=0;
+    if(s1==0)
+    {
+        delay(5);
+        if(s1==0)
+        {
+            s1count++;
+            while(!s1);//松手监测            
+            if(s1count==1)
+            {
+                TR0=0;//关定时器0
+                write_com(0x80+0x40+11);    //写入地址
+                write_com(0x0e);    //光标闪烁             
+            }
+            if(s1count==2)
+            {
+                write_com(0x80+0x40+8);     //光标闪烁没关，写入地址，继续闪烁
+            }
+            if(s1count==3)
+            {
+                write_com(0x80+0x40+5);                
+            }
+            if(s1count==4)
+            {
+                s1count=0;  //初始化s1的按键数
+                TR0=1;      //开定时器0
+                write_com(0x0c);    //关光标闪烁
+            }            
+        }         
+    }   
+    if(s1count!=0)      //s1count不等于0时，说明按键s1有按下，才可进行加数减数操作
+    {    
+        if(s2==0)
+        {
+            delay(5);
+            if(s2==0)
+            {
+                while(!s2);
+                if(s1count==1)
+                {
+                    second++;
+                    if(second==60)
+                        second=0;                    
+                    display_time(10,second);
+                    write_com(0x80+0x40+10);    //将地址写回秒的位置
+                } 
+                if(s1count==2)
+                {
+                    minute++;
+                    if(minute==60)
+                        minute=0;                   
+                    display_time(7,minute); 
+                    write_com(0x80+0x40+7);     //将地址写回分的位置
+                }    
+                if(s1count==3)
+                {
+                    hour++;
+                    if(hour==24)
+                        hour=0; 
+                    display_time(4,hour);
+                    write_com(0x80+0x40+4);     //将地址写回时的位置
+                    
+                }    
+            }
+         }
+        if(s3==0)
+        {
+            delay(5);
+            if(s3==0)
+            {
+                while(!s3);
+                if(s1count==1)
+                {
+                    second--;
+                    if(second==-1)
+                        second=59;
+                    display_time(10,second); 
+                    write_com(0x80+0x40+10);
+                    
+                }  
+                if(s1count==2)
+                {
+                    minute--;
+                    if(minute==-1)
+                        minute=59; 
+                    display_time(7,minute);
+                    write_com(0x80+0x40+7);
+                    
+                } 
+                if(s1count==3)
+                {
+                    hour--;
+                    if(hour==-1)
+                        hour=23; 
+                    display_time(4,hour);
+                    write_com(0x80+0x40+4);                     
+                } 
+            }
+         }
+        
+     }     
+}
+
+//时钟日期调节函数
+void adjust_date()
+{
+    P3=0x0f;
+    if(s4==0)
+    {
+        delay(5);
+        if(s4==0)
+        {
+            s4count++;
+            while(!s4);
+            if(s4count==1)
+            {
+                TR0=0;
+                write_com(0x80+10);    
+                write_com(0x0e);                
+            }
+            if(s4count==2)
+                write_com(0x80+7);
+            if(s4count==3)
+                write_com(0x80+4);
+            if(s4count==4)
+            {
+                s4count=0;
+                TR0=1;
+                write_com(0x0c);                
+            }            
+        }
+     }
+    if(s4count!=0)
+    {
+        if(s5==0)
+        {
+            delay(5);
+            if(s5==0)
+            {
+                while(!s5);
+                if(s4count==1)
+                {
+                    day++;
+                    if(day==30)
+                        day=0;
+                    display_date(9,day);
+                    write_com(0x80+9);
+                }
+                if(s4count==2)
+                {
+                    month++;
+                    if(month==12)
+                        month=0;
+                    display_date(6,month);
+                    write_com(0x80+6);
+                }
+                if(s4count==3)
+                {
+                    year++;
+                    if(year==99)
+                        year=0;
+                    display_date(3,year);
+                    write_com(0x80+3);
+                }                
+            }
+        }
+        if(s6==0)
+        {
+            delay(5);
+            if(s6==0)
+            {
+                while(!s6);
+                if(s4count==1)
+                {
+                    day--;
+                    if(day==-1)
+                        day=30;
+                    display_date(9,day);
+                    write_com(0x80+9);
+                }
+                if(s4count==2)
+                {
+                    month--;
+                    if(month==-1)
+                        month=12;
+                    display_date(6,month);
+                    write_com(0x80+6);
+                }
+                if(s4count==3)
+                {
+                    year--;
+                    if(year==-1)
+                        year=99;
+                    display_date(3,year);
+                    write_com(0x80+3);
+                }                
+            }
+        }
+    } 
+}
+
+//时钟星期调节函数
+void adjust_week()
+{
+    if(s7==0)
+    {
+        delay(5);
+        if(s7==0)
+        {
+            s7count++;
+            while(!s7);
+        }
+    }    
+    if(s7count!=0)
+    {
+        if(s7count==1)
+        {
+            write_com(0x80+12);   
+            //write_com(0x0e);
+            for(j=4;j<7;j++)
+            {
+                write_data(table2[j]);
+                delay(5);
+            }
+            write_com(0x0c);            
+        }           
+        if(s7count==2)
+        {       
+            write_com(0x80+12);           
+            for(j=8;j<11;j++)
+            {
+                write_data(table2[j]);
+                delay(5);
+            } 
+            write_com(0x0c);             
+        }
+        if(s7count==3)
+        {      
+            write_com(0x80+12);           
+            for(j=12;j<15;j++)
+            {
+                write_data(table2[j]);
+                delay(5);
+            } 
+            write_com(0x0c); 
+        } 
+        if(s7count==4)
+        {  
+            write_com(0x80+12);
+            for(j=16;j<19;j++)
+            {
+                write_data(table2[j]);
+                delay(5);
+            }
+            write_com(0x0c); 
+        }
+        if(s7count==5)
+        {  
+            write_com(0x80+12);
+            for(j=20;j<23;j++)
+            {
+                write_data(table2[j]);
+                delay(5);
+            }
+            write_com(0x0c); 
+        }
+        if(s7count==6)
+        {  
+            write_com(0x80+12);
+            for(j=24;j<27;j++)
+            {
+                write_data(table2[j]);
+                delay(5);
+            } 
+            write_com(0x0c); 
+        }            
+        if(s7count==7)
+        { 
+            write_com(0x80+12);
+            s7count=0;
+            for(j=0;j<3;j++)
+            {
+                write_data(table2[j]);
+                delay(5);
+            } 
+            write_com(0x0c);            
+         }   
+     }
+}
+
+void main()
+{     
+	init();       
+    while(1)
+    {  
+       adjust_date();
+       adjust_week(); 
+       adjust_time();      
+       if(timecount==20)
+       {
+           timecount=0;
+           second++;
+           if(second==60)
+           {
+               second=0;
+               minute++;
+               if(minute==60)
+               {
+                   minute=0;
+                   hour++;
+                   if(hour==24)
+                   {
+                       hour=0;                                              
+                   }  
+                   display_time(4,hour); //第一个参数为地址，第二个为想要显示的数字
+               }
+               display_time(7,minute);
+            } 
+           display_time(10,second);
+         }          
+     }
+}
